@@ -140,6 +140,7 @@ export const hashBundle = Effect.fn("hashBundle")(function* (root: string) {
 type FileSystemError = import("effect/PlatformError").PlatformError;
 
 const bundleId = "com.t3tools.t3code.dev";
+const androidBundleId = "com.urcraft.t3pendant.dev";
 const roots = Effect.gen(function* () {
   const path = yield* Path.Path;
   const repo = yield* path.fromFileUrl(new URL("../", import.meta.url));
@@ -266,9 +267,9 @@ export const installedBinary = Effect.fn("installedBinary")(function* (
       yield* run("xcrun", ["simctl", "get_app_container", device, bundleId, "app"]),
     );
   }
-  const installed = yield* run("adb", ["-s", device, "shell", "pm", "list", "packages", bundleId]);
-  if (!installed.split("\n").some((line) => line.trim() === `package:${bundleId}`)) return null;
-  const packages = yield* run("adb", ["-s", device, "shell", "pm", "path", bundleId]);
+  const installed = yield* run("adb", ["-s", device, "shell", "pm", "list", "packages", androidBundleId]);
+  if (!installed.split("\n").some((line) => line.trim() === `package:${androidBundleId}`)) return null;
+  const packages = yield* run("adb", ["-s", device, "shell", "pm", "path", androidBundleId]);
   const apks = packages
     .split("\n")
     .filter((line) => line.startsWith("package:"))
