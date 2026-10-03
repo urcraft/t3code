@@ -2,14 +2,26 @@ import { useEffect, useRef, useState } from "react";
 import * as Device from "expo-device";
 import { Platform } from "react-native";
 import type { OrchestrationLatestTurn, OrchestrationMessage } from "@t3tools/contracts";
+import { useIsFocused } from "@react-navigation/native";
+import { validatePendantCommand, type PendantTarget } from "./pendant-targets";
 
 const origin = "http://127.0.0.1:8766";
 const enabled = __DEV__ && Platform.OS === "android" && !Device.isDevice;
 
-type Command = { id: string; type: "send"; text: string } | { id: string; type: "cancel" };
+type Command = { id: string; environmentId: string; threadId: string } & (
+  | { type: "send"; text: string }
+  | { type: "cancel" }
+  | { type: "select"; targetThreadId: string }
+);
 type Active = { baselineTurnId: string | null; commandId: string };
 
 type Props = {
+  environmentId: string;
+  environmentLabel: string;
+  projectLabel: string;
+  target: PendantTarget | null;
+  targets: ReadonlyArray<PendantTarget>;
+  onSelectThread: (threadId: string) => void;
   threadId: string;
   title: string;
   latestTurn: OrchestrationLatestTurn | null;
@@ -33,6 +45,7 @@ async function post(path: string, body: object) {
 // This bridge is deliberately restricted to the Android emulator and the open thread.
 // The simulator is a dev input surface, not a BLE or microphone implementation.
 export function PendantSimulatorBridge(props: Props) {
+  const focused = useIsFocused();
   const latestProps = useRef(props);
   latestProps.current = props;
   const [active, setActive] = useState<Active | null>(null);
@@ -46,7 +59,7 @@ export function PendantSimulatorBridge(props: Props) {
   }, [props.threadId]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !focused) return;
     let mounted = true;
     async function poll() {
       while (mounted) {
@@ -59,6 +72,24 @@ export function PendantSimulatorBridge(props: Props) {
             // Acknowledge first so a reload or slow composer cannot submit twice.
             await post("/api/mobile/ack", { id: command.id });
             const current = latestProps.current;
+            const invalid = !current.connected
+              ? "T3 is offline"
+              : validatePendantCommand(command, {
+                  environmentId: current.environmentId,
+                  threadId: current.threadId,
+                  busy: current.latestTurn?.state === "running",
+                  available: current.target?.available ?? false,
+                  targets: current.targets,
+                });
+            if (invalid) {
+              setLocalError(invalid);
+              continue;
+            }
+            if (command.type === "select") {
+              setLocalError(null);
+              current.onSelectThread(command.targetThreadId);
+              break;
+            }
             if (command.type === "send") {
               setLocalError(null);
               setStopRequested(false);
@@ -92,10 +123,10 @@ export function PendantSimulatorBridge(props: Props) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [focused]);
 
   const turn =
-    active && props.latestTurn?.turnId !== active.baselineTurnId ? props.latestTurn : null;
+    active && props.latestTurn?.turnId === active.baselineTurnId ? null : props.latestTurn;
   const response = turn
     ? props.messages
         .filter((message) => message.role === "assistant" && message.turnId === turn.turnId)
@@ -106,7 +137,7 @@ export function PendantSimulatorBridge(props: Props) {
     ? "offline"
     : localError
       ? "error"
-      : !active
+      : !active && !turn
         ? "idle"
         : !turn
           ? "transferring"
@@ -143,16 +174,38 @@ export function PendantSimulatorBridge(props: Props) {
                       : "Agent working";
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !focused) return;
     const publish = () => {
-      void post("/api/mobile/state", { state, status, response, thread: props.title }).catch(
-        () => {},
-      );
+      void post("/api/mobile/state", {
+        state,
+        status,
+        response: response.slice(0, 2047),
+        thread: props.title,
+        target: props.target,
+        targets: props.targets,
+        environmentLabel: props.environmentLabel,
+        projectLabel: props.projectLabel,
+        busy: props.latestTurn?.state === "running" || (!!active && !turn && !localError),
+      }).catch(() => {});
     };
     publish();
     const heartbeat = setInterval(publish, 2000);
     return () => clearInterval(heartbeat);
-  }, [state, status, response, props.title]);
+  }, [
+    state,
+    status,
+    response,
+    props.title,
+    props.target,
+    props.targets,
+    props.environmentLabel,
+    props.projectLabel,
+    props.latestTurn,
+    active,
+    turn,
+    localError,
+    focused,
+  ]);
 
   return null;
 }

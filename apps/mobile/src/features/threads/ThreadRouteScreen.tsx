@@ -71,6 +71,7 @@ import {
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
 import { ThreadDetailScreen, type ThreadDetailScreenProps } from "./ThreadDetailScreen";
 import { PendantSimulatorBridge } from "./PendantSimulatorBridge";
+import { pendantTargets } from "./pendant-targets";
 import { GitOverviewSheet } from "./git/GitOverviewSheet";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useSelectedThreadGitActions } from "../../state/use-selected-thread-git-actions";
@@ -362,6 +363,7 @@ function ThreadRouteContent(
   const environmentIdRaw = firstRouteParam(params.environmentId);
   const environmentId = environmentIdRaw ? EnvironmentId.make(environmentIdRaw) : null;
   const threadId = firstRouteParam(params.threadId);
+  const pendantShell = useEnvironmentShellState(environmentId);
   const routeThreadIdentity =
     environmentIdRaw !== null && threadId !== null ? `${environmentIdRaw}:${threadId}` : null;
   const [inspectorSelection, setInspectorSelection] = useState<ThreadInspectorSelection | null>(
@@ -953,9 +955,28 @@ function ThreadRouteContent(
           connectionState: routeConnectionState,
         });
   const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
+  const targets = pendantTargets(
+    String(environmentId),
+    String(selectedThread.projectId),
+    Option.getOrNull(pendantShell.snapshot)?.threads ?? [],
+    serverConfig?.providers ?? [],
+  );
   const renderThreadRouteBody = () => (
     <>
       <PendantSimulatorBridge
+        environmentId={String(environmentId)}
+        environmentLabel={selectedEnvironmentConnection?.environmentLabel ?? "T3"}
+        projectLabel={selectedThreadProject?.title ?? "Project"}
+        target={targets.find((t) => t.threadId === String(selectedThread.id)) ?? null}
+        targets={targets}
+        onSelectThread={(id) =>
+          navigation.dispatch(
+            StackActions.replace("Thread", {
+              environmentId: String(environmentId),
+              threadId: id,
+            }),
+          )
+        }
         threadId={String(selectedThread.id)}
         title={selectedThread.title}
         latestTurn={selectedThreadDetail?.latestTurn ?? selectedThread.latestTurn}
