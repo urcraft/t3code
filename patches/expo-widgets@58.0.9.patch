@@ -131,6 +131,19 @@ index 4d135c4..dae4744 100644
      if #available(iOS 18.0, *) {
        LiveActivityBanner(context: context, nodes: nodes)
      } else if let node = nodes["banner"] as? [String: Any] {
+diff --git a/layout-registry.metro.config.js b/layout-registry.metro.config.js
+--- a/layout-registry.metro.config.js
++++ b/layout-registry.metro.config.js
+@@ -5,7 +5,8 @@
+ const expoWidgetsStubPath = path.join(__dirname, 'bundle/layout-registry-stub.ts');
+ const asyncRequireStubPath = path.join(__dirname, 'bundle/async-require-stub.ts');
+ // const emptyModuleStubPath = path.join(__dirname, 'bundle/empty-module-stub.js');
+-const fileSpecifierRe = /^[\\/]|^\.\.?(?:$|[\\/])/i;
++// Metro resolves its empty module by absolute path, including a drive letter on Windows.
++const fileSpecifierRe = /^(?:[a-z]:[\\/]|[\\/]|\.\.?(?:$|[\\/]))/i;
+
+ config.resolver = {
+   ...config.resolver,
 diff --git a/scripts/build-layout-registry.mjs b/scripts/build-layout-registry.mjs
 index d52a60e..fa9bd77 100644
 --- a/scripts/build-layout-registry.mjs
