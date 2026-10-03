@@ -70,6 +70,7 @@ import {
 } from "../terminal/terminalLaunchContext";
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
 import { ThreadDetailScreen, type ThreadDetailScreenProps } from "./ThreadDetailScreen";
+import { PendantSimulatorBridge } from "./PendantSimulatorBridge";
 import { GitOverviewSheet } from "./git/GitOverviewSheet";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useSelectedThreadGitActions } from "../../state/use-selected-thread-git-actions";
@@ -954,6 +955,19 @@ function ThreadRouteContent(
   const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
   const renderThreadRouteBody = () => (
     <>
+      <PendantSimulatorBridge
+        threadId={String(selectedThread.id)}
+        title={selectedThread.title}
+        latestTurn={selectedThreadDetail?.latestTurn ?? selectedThread.latestTurn}
+        messages={selectedThreadDetail?.messages ?? []}
+        needsInput={
+          requests.activePendingApproval !== null || requests.activePendingUserInput !== null
+        }
+        connected={routeConnectionState === "connected"}
+        onChangeDraftMessage={composer.onChangeDraftMessage}
+        onSendMessage={composer.onSendMessage}
+        onStopThread={handleStopThread}
+      />
       <GitActionProgressOverlay progress={gitActionProgress} onDismiss={dismissGitActionResult} />
 
       <View className="flex-1 bg-screen android:overflow-hidden android:rounded-t-[28px] android:bg-thread-canvas">
