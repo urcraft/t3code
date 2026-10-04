@@ -91,6 +91,7 @@ import { SettingsProjectOverviewRouteScreen } from "./features/settings/Settings
 import { UsageLimitAccountScreen } from "./features/usage/UsageLimitsPooled";
 import { UsageRouteScreen } from "./features/usage/UsageRouteScreen";
 import { SettingsAboutRouteScreen } from "./features/settings/SettingsAboutRouteScreen";
+import { SettingsPendantRouteScreen } from "./features/settings/SettingsPendantRouteScreen";
 import { SettingsNotificationsRouteScreen } from "./features/settings/SettingsNotificationsRouteScreen";
 import { SettingsRouteScreen } from "./features/settings/SettingsRouteScreen";
 import { SettingsThreadsRouteScreen } from "./features/settings/SettingsThreadsRouteScreen";
@@ -234,6 +235,11 @@ const SettingsContentStack = createNativeStackNavigator({
       screen: SettingsAboutRouteScreen,
       linking: "about",
       options: { title: "About T3 Code" },
+    }),
+    SettingsPendant: createNativeStackScreen({
+      screen: SettingsPendantRouteScreen,
+      linking: "pendant",
+      options: { title: "Pendant" },
     }),
     SettingsEnvironmentNew: createNativeStackScreen({
       screen: ConnectionsNewRouteScreen,

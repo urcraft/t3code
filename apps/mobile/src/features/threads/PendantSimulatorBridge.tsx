@@ -1,12 +1,24 @@
 import { useEffect, useRef, useState } from "react";
-import * as Device from "expo-device";
-import { Platform } from "react-native";
+import { Pressable, View } from "react-native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
 import type { OrchestrationLatestTurn, OrchestrationMessage } from "@t3tools/contracts";
-import { useIsFocused } from "@react-navigation/native";
+import { AppText as Text } from "../../components/AppText";
+import { SymbolView } from "../../components/AppSymbol";
+import { ProviderIcon } from "../../components/ProviderIcon";
+import {
+  pendantLinkLabel,
+  pendantSimulatorEnabled as enabled,
+  pendantSimulatorOrigin as origin,
+  setPendantConfirmed,
+  setPendantLatest,
+  usePendantCompanion,
+} from "../pendant/pendant-companion";
+import {
+  formatPendantResponse,
+  pendantState,
+  type PendantResponse,
+} from "../pendant/pendant-response";
 import { validatePendantCommand, type PendantTarget } from "./pendant-targets";
-
-const origin = "http://127.0.0.1:8766";
-const enabled = __DEV__ && Platform.OS === "android" && !Device.isDevice;
 
 type Command = { id: string; environmentId: string; threadId: string } & (
   | { type: "send"; text: string }
@@ -42,6 +54,26 @@ async function post(path: string, body: object) {
   if (!response.ok) throw new Error(`Simulator bridge returned ${response.status}`);
 }
 
+// Clock-based so a JS reload never reuses a sequence the simulator already accepted.
+let lastSequence = 0;
+function nextSequence() {
+  lastSequence = Math.max(lastSequence + 1, Date.now());
+  return lastSequence;
+}
+
+// Detailed phone-side status; the pendant receives the bounded contract payload.
+const statusText: Record<PendantResponse["state"], string> = {
+  offline: "T3 connection is offline",
+  error: "The T3 turn failed",
+  idle: "Ready for a typed prompt",
+  transferring: "Prompt queued in T3; waiting for a turn",
+  needs_input: "Action needed in the T3 app",
+  cancelled: "T3 confirmed the turn stopped",
+  complete: "T3 completed the turn",
+  receiving: "Receiving the agent reply",
+  thinking: "Agent working",
+};
+
 // This bridge is deliberately restricted to the Android emulator and the open thread.
 // The simulator is a dev input surface, not a BLE or microphone implementation.
 export function PendantSimulatorBridge(props: Props) {
@@ -51,6 +83,8 @@ export function PendantSimulatorBridge(props: Props) {
   const [active, setActive] = useState<Active | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [stopRequested, setStopRequested] = useState(false);
+  const liveTurns = useRef(new Set<string>());
+  const published = useRef<{ key: string; sequence: number } | null>(null);
 
   useEffect(() => {
     setActive(null);
@@ -133,53 +167,54 @@ export function PendantSimulatorBridge(props: Props) {
         .map((message) => message.text)
         .join("\n")
     : "";
-  const state = !props.connected
-    ? "offline"
-    : localError
-      ? "error"
-      : !active && !turn
-        ? "idle"
-        : !turn
-          ? "transferring"
-          : props.needsInput
-            ? "needs_input"
-            : turn.state === "interrupted"
-              ? "cancelled"
-              : turn.state === "error"
-                ? "error"
-                : turn.state === "completed"
-                  ? "complete"
-                  : response
-                    ? "receiving"
-                    : "thinking";
+  const lifecycle = {
+    connected: props.connected,
+    localError,
+    submitted: !!active,
+    turn,
+    needsInput: props.needsInput,
+    stopRequested,
+    reply: response,
+    requestId: turn?.turnId ?? active?.commandId ?? null,
+    target: props.target,
+  };
+  const state = pendantState(lifecycle);
+  // Changes whenever the pendant payload would; heartbeats reuse its sequence.
+  const key = JSON.stringify(formatPendantResponse({ ...lifecycle, announce: false, sequence: 0 }));
   const status =
-    state === "offline"
-      ? "T3 connection is offline"
-      : state === "error"
-        ? (localError ?? "The T3 turn failed")
-        : state === "idle"
-          ? "Ready for a typed prompt"
-          : state === "transferring"
-            ? "Prompt queued in T3; waiting for a turn"
-            : state === "needs_input"
-              ? "Action needed in the T3 app"
-              : state === "cancelled"
-                ? "T3 confirmed the turn stopped"
-                : state === "complete"
-                  ? "T3 completed the turn"
-                  : stopRequested
-                    ? "Stop requested; waiting for T3 confirmation"
-                    : state === "receiving"
-                      ? "Receiving the agent reply"
-                      : "Agent working";
+    state === "error"
+      ? (localError ?? statusText.error)
+      : (state === "thinking" || state === "receiving") && stopRequested
+        ? "Stop requested; waiting for T3 confirmation"
+        : statusText[state];
+
+  useEffect(() => {
+    if (!enabled || !focused || !props.target) return;
+    setPendantConfirmed({
+      target: props.target,
+      environmentLabel: props.environmentLabel,
+      projectLabel: props.projectLabel,
+      title: props.title,
+    });
+  }, [focused, props.target, props.environmentLabel, props.projectLabel, props.title]);
 
   useEffect(() => {
     if (!enabled || !focused) return;
+    // Announce only turns seen running, or sent from the pendant, while watched.
+    if (turn && (turn.state === "running" || active)) liveTurns.current.add(turn.turnId);
+    const pendant = formatPendantResponse({
+      ...lifecycle,
+      announce: !!turn && liveTurns.current.has(turn.turnId),
+      sequence: published.current?.key === key ? published.current.sequence : nextSequence(),
+    });
+    published.current = { key, sequence: pendant.sequence };
+    setPendantLatest(pendant);
     const publish = () => {
       void post("/api/mobile/state", {
         state,
         status,
         response: response.slice(0, 2047),
+        pendant,
         thread: props.title,
         target: props.target,
         targets: props.targets,
@@ -191,8 +226,9 @@ export function PendantSimulatorBridge(props: Props) {
     publish();
     const heartbeat = setInterval(publish, 2000);
     return () => clearInterval(heartbeat);
+    // `key` captures every pendant field; `lifecycle` is rebuilt each render.
   }, [
-    state,
+    key,
     status,
     response,
     props.title,
@@ -207,5 +243,43 @@ export function PendantSimulatorBridge(props: Props) {
     focused,
   ]);
 
-  return null;
+  if (!enabled) return null;
+  return <PendantCard connected={props.connected} target={props.target} />;
+}
+
+// Pendant link and T3 server readiness are independent facts; show both.
+function PendantCard(props: { connected: boolean; target: PendantTarget | null }) {
+  const navigation = useNavigation();
+  const { link } = usePendantCompanion();
+  const agent = props.target
+    ? `${props.target.providerName} · ${props.target.model}`
+    : "No conversation confirmed";
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${pendantLinkLabel(link)}. Server ${props.connected ? "ready" : "unavailable"}. ${agent}. Open pendant settings.`}
+      className="mx-3 mb-2 min-h-11 flex-row items-center gap-3 rounded-2xl bg-grouped-card px-3 py-2"
+      onPress={() =>
+        navigation.navigate("SettingsSheet", {
+          screen: "SettingsContent",
+          params: { screen: "SettingsPendant" },
+        })
+      }
+    >
+      <ProviderIcon provider={props.target?.driver} size={18} />
+      <View className="min-w-0 flex-1">
+        <Text className="text-xs font-t3-medium" numberOfLines={1}>
+          {pendantLinkLabel(link)}
+          <Text className="text-xs text-foreground-muted">
+            {" · "}
+            {props.connected ? "Server ready" : "Server unavailable"}
+          </Text>
+        </Text>
+        <Text className="text-xs text-foreground-muted" numberOfLines={1}>
+          {agent}
+        </Text>
+      </View>
+      <SymbolView name="chevron.right" size={16} tintColorClassName="accent-chevron" />
+    </Pressable>
+  );
 }

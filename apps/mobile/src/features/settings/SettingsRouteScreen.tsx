@@ -6,6 +6,7 @@ import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-g
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
+import { pendantSimulatorEnabled } from "../pendant/pendant-companion";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -193,6 +194,16 @@ function SettingsIndexSections() {
           disabled={noServerTargets}
         />
       </SettingsSection>
+
+      {pendantSimulatorEnabled ? (
+        <SettingsSection title="Pendant">
+          <SettingsRow
+            icon="bolt.horizontal.circle"
+            label="Simulated pendant"
+            target="SettingsPendant"
+          />
+        </SettingsSection>
+      ) : null}
 
       <SettingsSection title="App">
         <SettingsRow icon="chart.bar.xaxis" label="Usage" target="SettingsUsage" />
