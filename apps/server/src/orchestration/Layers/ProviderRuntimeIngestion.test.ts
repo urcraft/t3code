@@ -482,6 +482,39 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.lastError).toBe("turn failed");
   });
 
+  it.each(["interrupted", "cancelled"] as const)(
+    "settles a turn.completed with state %s as an interrupted turn",
+    async (state) => {
+      const harness = await createHarness();
+      const threadId = asThreadId("thread-1");
+      const turnId = asTurnId("claude-stopped-turn");
+      const base = { provider: ProviderDriverKind.make("claudeAgent"), threadId, turnId };
+      harness.emit({
+        ...base,
+        type: "turn.started",
+        eventId: asEventId("claude-started"),
+        createdAt: "2026-01-01T00:00:01.000Z",
+      });
+      // Claude reports a user stop as a completed turn with an interrupted state.
+      harness.emit({
+        ...base,
+        type: "turn.completed",
+        eventId: asEventId("claude-stopped"),
+        createdAt: "2026-01-01T00:00:02.000Z",
+        payload: { state, errorMessage: "Claude runtime interrupted." },
+      });
+
+      await harness.drain();
+      const thread = (await harness.readModel()).threads.find((entry) => entry.id === threadId);
+      expect(thread?.session).toMatchObject({
+        status: "interrupted",
+        activeTurnId: null,
+        lastError: null,
+      });
+      expect(thread?.latestTurn).toMatchObject({ turnId, state: "interrupted" });
+    },
+  );
+
   it.each([
     { delivery: "buffered", responseStreamingMode: "paragraph" as const },
     { delivery: "streamed", responseStreamingMode: "token" as const },
